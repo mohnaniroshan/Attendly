@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Attendly"
+description = "A personal college attendance and semester planner that imports editable timetables, tracks real attendance, and simulates future absences without changing real records."
+version = "1.0.0"
+id = "artifacts/attendly"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24496
+
+[services.development]
+run = "pnpm --filter @workspace/attendly run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/attendly", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/attendly/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24496"
+BASE_PATH = "/"
