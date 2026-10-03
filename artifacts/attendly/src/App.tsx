@@ -8,7 +8,7 @@ import { Route, Switch, useLocation, Router as WouterRouter, Link } from 'wouter
 import {
   BookOpen, CalendarDays, Check, ChevronRight, CircleHelp, Clock3, Download,
   FileJson, LayoutDashboard, Pencil, Plus, Settings2, ShieldCheck,
-  SlidersHorizontal, Sparkles, Trash2, Upload, X, RotateCcw, ArrowRight,
+  SlidersHorizontal, Sparkles, Trash2, Upload, X, RotateCcw, ArrowRight, Copy,
   CalendarRange, History, ListChecks, AlertCircle, CheckCircle2,
 } from 'lucide-react';
 import {
@@ -20,6 +20,8 @@ import {
   findExistingDuplicates, isDuplicateEntry, todayDateString, formatPercentage, formatTime, WEEKDAYS,
   parseBackup, parseTimeToMinutes, attendanceStatus,
 } from '@/lib/attendly';
+import { groupSubjectsForDisplay } from '@/lib/subject-groups';
+import { TIMETABLE_IMAGE_PROMPT } from '@/lib/timetable-image-prompt';
 
 const days = WEEKDAYS;
 const nav = [
@@ -212,20 +214,31 @@ function SubjectForm({ subject, onClose, onSave }: { subject?: SubjectRecord; on
 }
 function Subjects(p: Shared) {
   const { state } = p, [editing, setEditing] = useState<SubjectRecord | null | undefined>(undefined);
+  const groups = groupSubjectsForDisplay(state.subjects);
   return <><PageHeader eyebrow="Your classes" title="Subjects" subtitle="Keep a clear, class-by-class view of the numbers that matter." action={<button onClick={() => setEditing(null)} className="btn-primary" data-testid="button-add-subject"><Plus size={16} />Add subject</button>} />
-    {state.subjects.length === 0 ? <div className="content-card"><Empty icon={BookOpen} title="No subjects yet" text="Add a subject to track attendance manually, or start by adding classes to your weekly timetable." action={<button className="btn-primary" onClick={() => setEditing(null)} data-testid="button-empty-add-subject"><Plus size={15} />Create your first subject</button>} /></div> : <div className="space-y-3">{state.subjects.map(s => { const metrics = getAttendanceMetrics(s.attended, s.delivered, state.threshold, state.warningMargin), pct = metrics.percentage; return <article key={s.id} className="content-card" data-testid={`card-subject-${s.id}`}><div className="flex flex-wrap items-center gap-4"><div className="flex-1 min-w-[180px]"><div className="flex items-center gap-2"><h2 className="font-semibold text-[#2f4a3c]">{s.name}</h2><span className="text-[10px] uppercase tracking-wider text-muted-foreground rounded-full bg-[#eef1e9] px-2 py-1">{s.type}</span></div><div className="text-xs text-muted-foreground mt-1">{s.attended} / {s.delivered} · {s.delivered - s.attended} missed</div><div className="text-xs mt-2 text-[#63766a]" data-testid={`text-attendance-guidance-${s.id}`}>{metrics.safeBunks !== null && pct !== null && pct >= state.threshold ? `Can miss ${metrics.safeBunks} ${metrics.safeBunks === 1 ? 'class' : 'classes'}` : metrics.recoveryRequired === null ? 'Reaching this target is not possible by attending future classes alone.' : metrics.recoveryRequired > 0 ? `Attend ${metrics.recoveryRequired} future ${metrics.recoveryRequired === 1 ? 'class' : 'classes'} to reach ${state.threshold}%` : 'Attendance has not been recorded yet.'}</div></div><div className="text-right"><div className="font-serif text-2xl text-[#315541]" data-testid={`text-subject-percent-${s.id}`}>{fmtPercent(pct)}</div><Pill value={pct} threshold={state.threshold} warningMargin={state.warningMargin} /></div><button className="btn-quiet" onClick={() => setEditing(s)} aria-label={`Edit ${s.name}`} data-testid={`button-edit-subject-${s.id}`}><Pencil size={16} /></button>
-       <div className="w-full h-2 rounded-full bg-[#e9eee7] overflow-hidden"><div className="h-full rounded-full transition-all" style={progressStyle(pct, state.threshold, state.warningMargin)} /></div>
-       <div className="flex w-full gap-2 mt-0"><button className="btn-quiet ml-auto text-xs" onClick={() => { const historyCount = p.state.events.filter(e => e.subjectId === s.id).length; const question = historyCount ? `Remove ${s.name} and its weekly classes? Its attendance history (${historyCount} records) will remain.` : `Remove ${s.name} and its weekly classes?`; if (window.confirm(question)) p.update(c => ({ ...c, subjects: c.subjects.filter(x => x.id !== s.id), timetable: c.timetable.filter(x => x.subjectId !== s.id) })); }} data-testid={`button-delete-subject-${s.id}`}><Trash2 size={14} />Remove</button></div></div></article>; })}</div>}
+    {groups.length === 0 ? <div className="content-card"><Empty icon={BookOpen} title="No subjects yet" text="Add a subject to track attendance manually, or start by adding classes to your weekly timetable." action={<button className="btn-primary" onClick={() => setEditing(null)} data-testid="button-empty-add-subject"><Plus size={15} />Create your first subject</button>} /></div> : <div className="space-y-3">{groups.map(group => <article key={group.key} className="content-card" data-testid={`card-subject-group-${group.key}`}><h2 className="section-title mb-1">{group.name}</h2>
+      <div>{group.subjects.map(s => { const metrics = getAttendanceMetrics(s.attended, s.delivered, state.threshold, state.warningMargin), pct = metrics.percentage; return <div key={s.id} className="row-divider first:border-0 py-4" data-testid={`card-subject-${s.id}`}>
+        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_auto] gap-3 sm:gap-5 items-center">
+          <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="text-[10px] uppercase tracking-wider text-[#496854] rounded-full bg-[#e8efe5] px-2.5 py-1 font-semibold">{s.type}</span><span className="text-sm font-medium text-[#3d5548]">{s.attended} / {s.delivered} · {s.delivered - s.attended} missed</span></div>
+            <div className="text-xs mt-2 text-[#63766a]" data-testid={`text-attendance-guidance-${s.id}`}>{metrics.safeBunks !== null && pct !== null && pct >= state.threshold ? `Can miss ${metrics.safeBunks} ${metrics.safeBunks === 1 ? 'class' : 'classes'}` : metrics.recoveryRequired === null ? 'Reaching this target is not possible by attending future classes alone.' : metrics.recoveryRequired > 0 ? `Attend ${metrics.recoveryRequired} future ${metrics.recoveryRequired === 1 ? 'class' : 'classes'} to reach ${state.threshold}%` : 'Attendance has not been recorded yet.'}</div>
+            <div className="h-1.5 rounded-full bg-[#e9eee7] overflow-hidden mt-3"><div className="h-full rounded-full transition-all" style={progressStyle(pct, state.threshold, state.warningMargin)} /></div>
+          </div>
+          <div className="flex sm:flex-col items-center sm:items-end gap-2"><div className="font-serif text-xl text-[#315541]" data-testid={`text-subject-percent-${s.id}`}>{fmtPercent(pct)}</div><Pill value={pct} threshold={state.threshold} warningMargin={state.warningMargin} /></div>
+          <div className="flex justify-end gap-1"><button className="btn-quiet" onClick={() => setEditing(s)} aria-label={`Edit ${group.name} ${s.type}`} data-testid={`button-edit-subject-${s.id}`}><Pencil size={16} /><span className="sm:hidden">Edit</span></button><button className="btn-quiet text-xs" onClick={() => { const historyCount = p.state.events.filter(e => e.subjectId === s.id).length; const question = historyCount ? `Remove ${group.name} ${s.type} and its weekly classes? Its attendance history (${historyCount} records) will remain.` : `Remove ${group.name} ${s.type} and its weekly classes?`; if (window.confirm(question)) p.update(c => ({ ...c, subjects: c.subjects.filter(x => x.id !== s.id), timetable: c.timetable.filter(x => x.subjectId !== s.id) })); }} data-testid={`button-delete-subject-${s.id}`}><Trash2 size={14} /><span className="sm:hidden">Remove</span></button></div>
+        </div>
+      </div>; })}</div>
+    </article>)}</div>}
     {editing !== undefined && <SubjectForm subject={editing || undefined} onClose={() => setEditing(undefined)} onSave={p.saveSubject} />}
   </>;
 }
 
 function TimetableForm({ initial, subjects, entries, onSave, onClose, onCreateSubject }: { initial?: TimetableEntry; subjects: SubjectRecord[]; entries: TimetableEntry[]; onSave: (e: TimetableEntry) => void; onClose: () => void; onCreateSubject: () => void }) {
   const [subjectId, setSubjectId] = useState(initial?.subjectId ?? subjects[0]?.id ?? ''), [day, setDay] = useState<Weekday>(initial?.day ?? 'Monday'), [startTime, setStartTime] = useState(initial?.startTime ?? '09:00'), [endTime, setEndTime] = useState(initial?.endTime ?? '10:00'), [room, setRoom] = useState(initial?.room ?? ''), [error, setError] = useState('');
+  const sortedSubjects = groupSubjectsForDisplay(subjects).flatMap(group => group.subjects);
   return <Modal title={initial ? 'Edit timetable entry' : 'Add a class'} onClose={onClose}>
     {subjects.length === 0 ? <Empty icon={BookOpen} title="Add a subject first" text="Every timetable entry belongs to a subject, so your attendance stays organized." action={<button className="btn-primary" onClick={onCreateSubject} data-testid="button-create-subject-from-entry"><Plus size={15} />Create subject</button>} /> :
      <form onSubmit={e => { e.preventDefault(); const candidate = { id: initial?.id ?? makeId(), subjectId, day, startTime, endTime, room: room.trim() }; if (!subjectId || parseTimeToMinutes(startTime) === null || parseTimeToMinutes(endTime) === null || parseTimeToMinutes(endTime)! <= parseTimeToMinutes(startTime)!) { setError('Choose a subject and an end time after the start time.'); return; } if (isDuplicateEntry(entries, candidate, initial?.id)) { setError('This exact class is already on your timetable.'); return; } onSave(candidate); onClose(); }}>
-      <div className="space-y-4"><label><span className="field-label">Subject</span><select className="field" data-testid="select-entry-subject" value={subjectId} onChange={e => setSubjectId(e.target.value)}>{subjects.map(s => <option value={s.id} key={s.id}>{s.name}</option>)}</select></label>
+      <div className="space-y-4"><label><span className="field-label">Subject</span><select className="field" data-testid="select-entry-subject" value={subjectId} onChange={e => setSubjectId(e.target.value)}>{sortedSubjects.map(s => <option value={s.id} key={s.id} data-testid={`option-entry-subject-${s.id}`}>{s.name} · {s.type}</option>)}</select></label>
       <label><span className="field-label">Day</span><select className="field" data-testid="select-entry-day" value={day} onChange={e => setDay(e.target.value as Weekday)}>{days.map(d => <option key={d}>{d}</option>)}</select></label>
       <div className="grid grid-cols-2 gap-3"><label><span className="field-label">Starts</span><input type="time" className="field" data-testid="input-entry-start" value={startTime} onChange={e => setStartTime(e.target.value)} /></label><label><span className="field-label">Ends</span><input type="time" className="field" data-testid="input-entry-end" value={endTime} onChange={e => setEndTime(e.target.value)} /></label></div>
       <label><span className="field-label">Room <span className="font-normal text-muted-foreground">(optional)</span></span><input className="field" data-testid="input-entry-room" value={room} onChange={e => setRoom(e.target.value)} placeholder="Building or room" /></label>
@@ -311,37 +324,96 @@ function ProjectionTile({ label, value, threshold }: { label: string; value: num
   return <div className={`rounded-xl p-3 ${style === 'good' ? 'bg-[#e8f2e7]' : style === 'warn' ? 'bg-[#fff2d8]' : style === 'low' ? 'bg-[#f9e9e4]' : 'bg-[#f0f1eb]'}`}><div className="text-[10px] text-muted-foreground mb-1">{label}</div><div className="font-serif text-xl text-[#365543]" data-testid={`text-projection-${label.toLowerCase().replaceAll(' ', '-')}`}>{fmtPercent(value)}</div></div>;
 }
 
+async function copyTextToClipboard(text: string) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch {
+    // Fall back for browsers that deny clipboard access.
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  let copied = false;
+  try { copied = document.execCommand('copy'); }
+  finally { textarea.remove(); }
+  if (!copied) throw new Error('Clipboard access is unavailable.');
+}
+
 function ImportModal(p: Shared) {
-  const [open, setOpen] = useState(false), [draft, setDraft] = useState<ImportPreview | null>(null), [mode, setMode] = useState<'merge' | 'replace'>('merge'), [error, setError] = useState('');
+  const [open, setOpen] = useState(false), [draft, setDraft] = useState<ImportPreview | null>(null), [mode, setMode] = useState<'merge' | 'replace'>('merge'), [sourceMode, setSourceMode] = useState<'paste' | 'upload'>('paste'), [pastedJson, setPastedJson] = useState(''), [error, setError] = useState('');
   const duplicateCount = draft ? new Set([...findExistingDuplicates(p.state.timetable, draft.entries), ...draft.duplicateEntryIndexes]).size : 0;
+  const validateText = (text: string) => {
+    setError('');
+    setDraft(null);
+    try { setDraft(parseTimetableImport(text)); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not validate this JSON. Check the text and try again.'); }
+  };
   const parseFile = async (file?: File) => {
     if (!file) return;
-    setError(''); setDraft(null);
-    try {
-      const parsed = parseTimetableImport(await file.text());
-      setDraft(parsed);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not read this file. Check that it is valid JSON.'); }
+    setError('');
+    setDraft(null);
+    try { validateText(await file.text()); }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not read this file. Check that it is valid JSON.'); }
+  };
+  const closeModal = () => {
+    setOpen(false); setDraft(null); setError(''); setPastedJson(''); setSourceMode('paste'); setMode('merge');
+  };
+  const copyPrompt = async () => {
+    try { await copyTextToClipboard(TIMETABLE_IMAGE_PROMPT); p.notify('AI prompt copied!'); }
+    catch { p.notify('Could not copy the prompt. Check your browser clipboard permissions.'); }
   };
   const commit = () => {
     if (!draft) return;
     p.update(c => mode === 'replace'
       ? replaceTimetable(c, draft, c.semester?.name)
       : mergeTimetable(c, draft));
-    setOpen(false); setDraft(null); p.notify(mode === 'replace' ? 'Timetable replaced' : 'Timetable imported');
+    closeModal();
+    p.notify(mode === 'replace' ? 'Timetable replaced' : 'Timetable imported');
   };
-  return <>{<button className="btn-secondary" onClick={() => setOpen(true)} data-testid="button-import-timetable"><Upload size={15} />Import JSON</button>}{open && <Modal title="Bring in a timetable" onClose={() => { setOpen(false); setDraft(null); setError(''); }}>
-    {!draft ? <><div className="rounded-xl bg-[#edf2eb] p-4 text-xs leading-relaxed text-[#607468] mb-4"><FileJson size={18} className="mb-2" /><p>Choose a JSON file with a <code>subjects</code> array. Each subject needs a name and schedules containing days and class times. The preview checks each entry before changing anything.</p></div><label className="field-label">Timetable file<input type="file" accept=".json,application/json" className="field mt-2" onChange={e => void parseFile(e.target.files?.[0])} data-testid="input-import-file" /></label>{error && <div role="alert" className="text-xs text-red-700 mt-3">{error}</div>}<div className="flex justify-end mt-5"><button className="btn-quiet" onClick={() => setOpen(false)} data-testid="button-cancel-import">Cancel</button></div></> :
-    <><div className="rounded-xl bg-[#edf2eb] p-4 mb-4"><div className="font-semibold text-sm text-[#385346]" data-testid="text-import-preview">{draft.classCount} classes {draft.valid ? 'ready to import' : 'found in preview'}</div><div className="text-xs text-muted-foreground mt-1">{draft.subjectCount} subjects · {duplicateCount} matching entries</div></div><div className="max-h-44 overflow-auto border rounded-xl px-3 mb-4">{draft.entries.map(e => <div key={e.id} className="row-divider first:border-0 py-2 text-xs flex justify-between"><span>{draft.subjects.find(s => s.id === e.subjectId)?.name} · {e.day}</span><span>{formatTime(e.startTime)}–{formatTime(e.endTime)}</span></div>)}</div>
+  return <><button className="btn-secondary" onClick={() => setOpen(true)} data-testid="button-import-timetable"><Upload size={15} />Import timetable</button>{open && <Modal title="Import your timetable" className="import-modal" onClose={closeModal}>
+    {!draft ? <>
+      <div className="rounded-xl bg-[#edf2eb] p-4 text-sm leading-relaxed text-[#607468] mb-4"><div className="font-semibold text-[#385346] mb-1">Bring in your weekly classes</div><p>Paste JSON from an AI or upload an existing JSON timetable. Attendly checks it first and only changes your timetable after you confirm the preview.</p></div>
+      <div className="flex gap-2 mb-4" aria-label="Choose how to provide timetable JSON">
+        <button type="button" aria-pressed={sourceMode === 'paste'} onClick={() => { setSourceMode('paste'); setError(''); }} className={sourceMode === 'paste' ? 'btn-primary' : 'btn-secondary'} data-testid="button-import-paste-tab"><span>Option 1</span>Paste JSON</button>
+        <button type="button" aria-pressed={sourceMode === 'upload'} onClick={() => { setSourceMode('upload'); setError(''); }} className={sourceMode === 'upload' ? 'btn-primary' : 'btn-secondary'} data-testid="button-import-upload-tab"><span>Option 2</span>Upload JSON File</button>
+      </div>
+      {sourceMode === 'paste' ? <section aria-label="Paste timetable JSON" className="rounded-xl border border-[#e1e6dc] bg-white/60 p-4">
+        <div className="font-semibold text-sm text-[#385346]">Paste JSON</div><p className="text-xs text-muted-foreground mt-1 mb-3">Copy JSON generated by an AI and paste it here. Large timetables are fine.</p>
+        <label htmlFor="timetable-json-text" className="field-label">Timetable JSON</label>
+        <textarea id="timetable-json-text" className="field min-h-[240px] resize-y font-mono text-xs leading-relaxed" rows={12} value={pastedJson} onChange={e => setPastedJson(e.target.value)} placeholder="Paste your timetable JSON here..." data-testid="input-import-json-text" />
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-3"><span className="text-[11px] text-muted-foreground">Nothing imports until you confirm the preview.</span><button type="button" className="btn-primary" onClick={() => validateText(pastedJson)} data-testid="button-validate-json"><Check size={15} />Validate JSON</button></div>
+      </section> : <section aria-label="Upload timetable JSON" className="rounded-xl border border-[#e1e6dc] bg-white/60 p-4">
+        <div className="font-semibold text-sm text-[#385346]">Upload JSON</div><p className="text-xs text-muted-foreground mt-1 mb-3">Choose an existing .json timetable file. It uses the same validation and preview as pasted JSON.</p>
+        <label className="field-label">Timetable file<input type="file" accept=".json,application/json" className="field mt-2" onChange={e => { const file = e.target.files?.[0]; e.currentTarget.value = ''; void parseFile(file); }} data-testid="input-import-file" /></label>
+      </section>}
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[#edf3f7] p-4 mt-4">
+        <div className="min-w-[190px] flex-1"><div className="font-semibold text-sm text-[#3d5d6d]">Need JSON from a timetable image?</div><p className="text-xs text-[#637b89] mt-1">Copy this prompt into an AI that can read your timetable image, then paste the result above.</p></div>
+        <button type="button" className="btn-secondary shrink-0" onClick={() => void copyPrompt()} data-testid="button-copy-image-prompt"><Copy size={15} />Copy AI Prompt</button>
+      </section>
+      {error && <div role="alert" className="text-xs text-red-700 mt-3">{error}</div>}
+      <div className="flex justify-end mt-5"><button type="button" className="btn-quiet" onClick={closeModal} data-testid="button-cancel-import">Cancel</button></div>
+    </> : <>
+      <div className="rounded-xl bg-[#edf2eb] p-4 mb-4"><div className="font-semibold text-sm text-[#385346]" data-testid="text-import-preview">{draft.classCount} classes {draft.valid ? 'ready to import' : 'found in preview'}</div><div className="text-xs text-muted-foreground mt-1">{draft.subjectCount} subjects · {duplicateCount} matching entries</div></div>
+      <div className="max-h-52 overflow-auto border rounded-xl px-3 mb-4">{draft.entries.map(e => { const subject = draft.subjects.find(s => s.id === e.subjectId); return <div key={e.id} className="row-divider first:border-0 py-2 text-xs flex justify-between gap-3"><span className="min-w-0">{subject?.name ?? 'Unknown subject'} <span className="text-[10px] uppercase text-muted-foreground">{subject?.type}</span> · {e.day}</span><span className="shrink-0">{formatTime(e.startTime)}–{formatTime(e.endTime)}</span></div>; })}</div>
       {(draft.errors.length > 0 || draft.warnings.length > 0) && <div className="text-xs text-amber-800 mb-3 max-h-24 overflow-auto"><ul className="list-disc pl-4">{[...draft.errors, ...draft.warnings].slice(0, 8).map((issue, index) => <li key={index}>{issue}</li>)}</ul></div>}
-      <div className="field-label mb-2">If entries already exist</div><div className="flex gap-2 mb-4"><button onClick={() => setMode('merge')} className={mode === 'merge' ? 'btn-primary' : 'btn-secondary'} data-testid="button-import-merge">Merge new entries</button><button onClick={() => setMode('replace')} className={mode === 'replace' ? 'btn-primary' : 'btn-secondary'} data-testid="button-import-replace">Replace timetable</button></div>
+      <div className="field-label mb-2">If entries already exist</div><div className="flex flex-wrap gap-2 mb-4"><button type="button" onClick={() => setMode('merge')} className={mode === 'merge' ? 'btn-primary' : 'btn-secondary'} data-testid="button-import-merge">Merge new entries</button><button type="button" onClick={() => setMode('replace')} className={mode === 'replace' ? 'btn-primary' : 'btn-secondary'} data-testid="button-import-replace">Replace timetable</button></div>
       <p className="text-xs text-muted-foreground mb-5">{mode === 'merge' ? 'Matching classes are kept once; your existing timetable stays in place.' : 'Replace starts a fresh imported semester and clears current subject counts and attendance history. Download a backup first if you need to keep them.'}</p>
-      <div className="flex justify-between"><button className="btn-quiet" onClick={() => { setDraft(null); setError(''); }} data-testid="button-import-back">Choose another file</button><div className="flex gap-2"><button className="btn-quiet" onClick={() => { setOpen(false); setDraft(null); }} data-testid="button-cancel-import-preview">Cancel</button><button className="btn-primary" onClick={commit} disabled={!draft.valid || !draft.entries.length} data-testid="button-confirm-import"><Check size={15} />Import timetable</button></div></div></>}
+      <div className="flex flex-wrap justify-between gap-2"><button type="button" className="btn-quiet" onClick={() => { setDraft(null); setError(''); }} data-testid="button-import-back">{sourceMode === 'paste' ? 'Edit pasted JSON' : 'Choose another file'}</button><div className="flex flex-wrap gap-2"><button type="button" className="btn-quiet" onClick={closeModal} data-testid="button-cancel-import-preview">Cancel</button><button type="button" className="btn-primary" onClick={commit} disabled={!draft.valid || !draft.entries.length} data-testid="button-confirm-import"><Check size={15} />Import timetable</button></div></div>
+    </>}
   </Modal>}</>;
 }
 
-function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+function Modal({ title, children, onClose, className = '' }: { title: string; children: ReactNode; onClose: () => void; className?: string }) {
   useEffect(() => { const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key); }, [onClose]);
-  return <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}><div className="modal" role="dialog" aria-modal="true" aria-label={title} data-testid="dialog-modal"><div className="flex justify-between items-center mb-5"><h2 className="section-title">{title}</h2><button onClick={onClose} className="btn-quiet !p-2" aria-label="Close dialog" data-testid="button-close-modal"><X size={17} /></button></div>{children}</div></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}><div className={`modal ${className}`.trim()} role="dialog" aria-modal="true" aria-label={title} data-testid="dialog-modal"><div className="flex justify-between items-center mb-5"><h2 className="section-title">{title}</h2><button onClick={onClose} className="btn-quiet !p-2" aria-label="Close dialog" data-testid="button-close-modal"><X size={17} /></button></div>{children}</div></div>;
 }
 
 function Settings(p: Shared) {

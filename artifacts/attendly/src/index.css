@@ -470,6 +470,7 @@ body { background: #f6f5ef; }
 .empty-state { text-align:center;padding:38px 22px;color:#718079; }.empty-symbol { margin:0 auto 14px;width:44px;height:44px;display:grid;place-items:center;background:#eaf1e8;color:#467052;border-radius:14px; }
 .modal-backdrop { position:fixed;inset:0;background:rgba(26,43,36,.38);z-index:50;display:flex;align-items:center;justify-content:center;padding:18px;backdrop-filter:blur(3px); }
 .modal { width:min(560px,100%);max-height:90dvh;overflow:auto;background:#faf9f3;border:1px solid #dce4d9;border-radius:20px;padding:25px;box-shadow:0 24px 80px rgba(22,42,32,.2);animation:rise .2s ease-out; }
+.modal.import-modal { width:min(760px,100%); }
 @keyframes rise { from {opacity:0;transform:translateY(8px)} to {opacity:1;transform:translateY(0)} }
 .mobile-nav { display:none; }
 @media(max-width:760px) {
