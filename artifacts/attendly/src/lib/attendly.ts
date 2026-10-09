@@ -51,12 +51,24 @@ export type AttendanceEvent = {
   room?: string;
 };
 
+export type SavedTrip = {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+};
+
 export type AppState = {
   schemaVersion: 1;
   semester: Semester | null;
   subjects: SubjectRecord[];
   timetable: TimetableEntry[];
   events: AttendanceEvent[];
+  holidays: {
+    date: string;
+    name: string;
+  }[];
+  savedTrips: SavedTrip[];
   threshold: number;
   warningMargin: number;
 };
@@ -106,10 +118,23 @@ export type TripProjection = {
   timeline: ClassOccurrence[];
   beforeTrip: ClassOccurrence[];
   duringTrip: ClassOccurrence[];
+  holidays: { date: string; name: string }[];
   subjects: TripSubjectProjection[];
-  overallBefore: { attended: number; delivered: number; percentage: number | null };
-  overallAfter: { attended: number; delivered: number; percentage: number | null };
-  overallAttendAll: { attended: number; delivered: number; percentage: number | null };
+  overallBefore: {
+    attended: number;
+    delivered: number;
+    percentage: number | null;
+  };
+  overallAfter: {
+    attended: number;
+    delivered: number;
+    percentage: number | null;
+  };
+  overallAttendAll: {
+    attended: number;
+    delivered: number;
+    percentage: number | null;
+  };
   warningSubjects: string[];
 };
 
@@ -129,17 +154,25 @@ export function createEmptyState(): AppState {
     subjects: [],
     timetable: [],
     events: [],
+    holidays: [],
+    savedTrips: [],
     threshold: 75,
     warningMargin: 5,
   };
 }
 
 export function isWeekday(value: unknown): value is Weekday {
-  return typeof value === "string" && WEEKDAYS.some((day) => day.toLowerCase() === value.toLowerCase());
+  return (
+    typeof value === "string" &&
+    WEEKDAYS.some((day) => day.toLowerCase() === value.toLowerCase())
+  );
 }
 
 export function normalizeWeekday(value: string): Weekday | null {
-  return WEEKDAYS.find((day) => day.toLowerCase() === value.trim().toLowerCase()) ?? null;
+  return (
+    WEEKDAYS.find((day) => day.toLowerCase() === value.trim().toLowerCase()) ??
+    null
+  );
 }
 
 export function weekdayForDate(dateString: string): Weekday {
@@ -176,46 +209,82 @@ export function formatTime(value: string): string {
   return `${String(displayHours).padStart(2, "0")}:${String(minute).padStart(2, "0")} ${suffix}`;
 }
 
-export function sortEntries<T extends Pick<TimetableEntry, "startTime">>(entries: T[]): T[] {
+export function sortEntries<T extends Pick<TimetableEntry, "startTime">>(
+  entries: T[],
+): T[] {
   return [...entries].sort(
-    (a, b) => (parseTimeToMinutes(a.startTime) ?? 0) - (parseTimeToMinutes(b.startTime) ?? 0),
+    (a, b) =>
+      (parseTimeToMinutes(a.startTime) ?? 0) -
+      (parseTimeToMinutes(b.startTime) ?? 0),
   );
 }
 
-export function splitSubjectName(rawName: string): { name: string; type: ClassType } {
+export function splitSubjectName(rawName: string): {
+  name: string;
+  type: ClassType;
+} {
   const cleaned = rawName.trim();
   const suffix = cleaned.match(/(?:\s+|-)(PP|PR)$/i);
   if (!suffix) return { name: cleaned, type: "Other" };
-  const name = cleaned.slice(0, suffix.index).trim().replace(/[-\s]+$/, "");
+  const name = cleaned
+    .slice(0, suffix.index)
+    .trim()
+    .replace(/[-\s]+$/, "");
   return {
     name: name || cleaned,
     type: suffix[1].toUpperCase() === "PP" ? "Theory" : "Practical",
   };
 }
 
-export function formatPercentage(value: number | null, fractionDigits = 2): string {
+export function formatPercentage(
+  value: number | null,
+  fractionDigits = 2,
+): string {
   if (value === null || !Number.isFinite(value)) return "—";
   return `${value.toFixed(fractionDigits)}%`;
 }
 
-export function attendancePercentage(attended: number, delivered: number): number | null {
+export function attendancePercentage(
+  attended: number,
+  delivered: number,
+): number | null {
   if (delivered === 0) return null;
   return (attended / delivered) * 100;
 }
 
-export function countSafeBunks(attended: number, delivered: number, threshold: number): number | null {
-  if (delivered === 0 || !Number.isFinite(threshold) || threshold <= 0 || threshold > 100) return null;
+export function countSafeBunks(
+  attended: number,
+  delivered: number,
+  threshold: number,
+): number | null {
+  if (
+    delivered === 0 ||
+    !Number.isFinite(threshold) ||
+    threshold <= 0 ||
+    threshold > 100
+  )
+    return null;
   const extra = Math.floor((attended * 100) / threshold - delivered + 1e-9);
   return Math.max(0, extra);
 }
 
-export function countRecoveryClasses(attended: number, delivered: number, threshold: number): number | null {
-  if (!Number.isFinite(threshold) || threshold <= 0 || threshold > 100) return null;
+export function countRecoveryClasses(
+  attended: number,
+  delivered: number,
+  threshold: number,
+): number | null {
+  if (!Number.isFinite(threshold) || threshold <= 0 || threshold > 100)
+    return null;
   if (delivered === 0 || (attended === delivered && attended === 0)) return 0;
   const percentage = attendancePercentage(attended, delivered);
   if (percentage !== null && percentage >= threshold) return 0;
   if (threshold === 100) return null;
-  return Math.max(0, Math.ceil((threshold * delivered - 100 * attended) / (100 - threshold) - 1e-10));
+  return Math.max(
+    0,
+    Math.ceil(
+      (threshold * delivered - 100 * attended) / (100 - threshold) - 1e-10,
+    ),
+  );
 }
 
 export function attendanceStatus(
@@ -227,7 +296,8 @@ export function attendanceStatus(
   const percentage = attendancePercentage(attended, delivered);
   if (percentage === null) return "not-started";
   if (percentage < threshold) return "critical";
-  if (percentage < Math.min(100, threshold + Math.max(0, warningMargin))) return "warning";
+  if (percentage < Math.min(100, threshold + Math.max(0, warningMargin)))
+    return "warning";
   return "safe";
 }
 
@@ -247,14 +317,28 @@ export function getAttendanceMetrics(
   };
 }
 
-export function aggregateAttendance(records: Pick<SubjectRecord, "attended" | "delivered">[]) {
+export function aggregateAttendance(
+  records: Pick<SubjectRecord, "attended" | "delivered">[],
+) {
   const attended = records.reduce((sum, record) => sum + record.attended, 0);
   const delivered = records.reduce((sum, record) => sum + record.delivered, 0);
-  return { attended, delivered, percentage: attendancePercentage(attended, delivered) };
+  return {
+    attended,
+    delivered,
+    percentage: attendancePercentage(attended, delivered),
+  };
 }
 
-export function getRecordMetrics(record: SubjectRecord, state: Pick<AppState, "threshold" | "warningMargin">) {
-  return getAttendanceMetrics(record.attended, record.delivered, state.threshold, state.warningMargin);
+export function getRecordMetrics(
+  record: SubjectRecord,
+  state: Pick<AppState, "threshold" | "warningMargin">,
+) {
+  return getAttendanceMetrics(
+    record.attended,
+    record.delivered,
+    state.threshold,
+    state.warningMargin,
+  );
 }
 
 function emptyDayCounts(): Record<Weekday, number> {
@@ -269,7 +353,12 @@ function emptyDayCounts(): Record<Weekday, number> {
   };
 }
 
-function duplicateKey(entry: Pick<TimetableEntry, "subjectId" | "day" | "startTime" | "endTime" | "room">) {
+function duplicateKey(
+  entry: Pick<
+    TimetableEntry,
+    "subjectId" | "day" | "startTime" | "endTime" | "room"
+  >,
+) {
   return [
     entry.subjectId.toLocaleLowerCase(),
     entry.day.toLocaleLowerCase(),
@@ -290,7 +379,10 @@ export function findDuplicateEntryIndexes(entries: TimetableEntry[]): number[] {
   return duplicates;
 }
 
-export function findExistingDuplicates(existing: TimetableEntry[], incoming: TimetableEntry[]): number[] {
+export function findExistingDuplicates(
+  existing: TimetableEntry[],
+  incoming: TimetableEntry[],
+): number[] {
   const known = new Set(existing.map(duplicateKey));
   return incoming.flatMap((entry, index) => {
     const key = duplicateKey(entry);
@@ -300,7 +392,11 @@ export function findExistingDuplicates(existing: TimetableEntry[], incoming: Tim
   });
 }
 
-export function isDuplicateEntry(existing: TimetableEntry[], candidate: TimetableEntry, editingId?: string): boolean {
+export function isDuplicateEntry(
+  existing: TimetableEntry[],
+  candidate: TimetableEntry,
+  editingId?: string,
+): boolean {
   return findExistingDuplicates(
     existing.filter((entry) => entry.id !== editingId),
     [candidate],
@@ -331,7 +427,12 @@ export function parseTimetableImport(jsonText: string): ImportPreview {
     };
   }
 
-  if (!data || typeof data !== "object" || !("subjects" in data) || !Array.isArray(data.subjects)) {
+  if (
+    !data ||
+    typeof data !== "object" ||
+    !("subjects" in data) ||
+    !Array.isArray(data.subjects)
+  ) {
     return {
       valid: false,
       errors: ['The JSON must contain a "subjects" array.'],
@@ -385,9 +486,14 @@ export function parseTimetableImport(jsonText: string): ImportPreview {
         return;
       }
       const schedule = rawSchedule as { day?: unknown; classTimes?: unknown };
-      const day = typeof schedule.day === "string" ? normalizeWeekday(schedule.day) : null;
+      const day =
+        typeof schedule.day === "string"
+          ? normalizeWeekday(schedule.day)
+          : null;
       if (!day) {
-        errors.push(`${scheduleLabel} has an invalid day. Use Monday through Sunday.`);
+        errors.push(
+          `${scheduleLabel} has an invalid day. Use Monday through Sunday.`,
+        );
         return;
       }
       if (!Array.isArray(schedule.classTimes)) {
@@ -406,21 +512,32 @@ export function parseTimetableImport(jsonText: string): ImportPreview {
           roomNumber?: unknown;
           room?: unknown;
         };
-        if (typeof classTime.startTime !== "string" || parseTimeToMinutes(classTime.startTime) === null) {
+        if (
+          typeof classTime.startTime !== "string" ||
+          parseTimeToMinutes(classTime.startTime) === null
+        ) {
           errors.push(`${classLabel} has an invalid start time.`);
           return;
         }
-        if (typeof classTime.endTime !== "string" || parseTimeToMinutes(classTime.endTime) === null) {
+        if (
+          typeof classTime.endTime !== "string" ||
+          parseTimeToMinutes(classTime.endTime) === null
+        ) {
           errors.push(`${classLabel} has an invalid end time.`);
           return;
         }
-        if (parseTimeToMinutes(classTime.endTime)! <= parseTimeToMinutes(classTime.startTime)!) {
+        if (
+          parseTimeToMinutes(classTime.endTime)! <=
+          parseTimeToMinutes(classTime.startTime)!
+        ) {
           errors.push(`${classLabel} must end after it starts.`);
           return;
         }
         const roomValue = classTime.roomNumber ?? classTime.room ?? "";
         if (roomValue && typeof roomValue !== "string") {
-          errors.push(`${classLabel} has an invalid room; use text or leave it blank.`);
+          errors.push(
+            `${classLabel} has an invalid room; use text or leave it blank.`,
+          );
           return;
         }
         entries.push({
@@ -438,10 +555,14 @@ export function parseTimetableImport(jsonText: string): ImportPreview {
 
   const duplicateEntryIndexes = findDuplicateEntryIndexes(entries);
   if (duplicateEntryIndexes.length > 0) {
-    warnings.push(`${duplicateEntryIndexes.length} duplicate class ${duplicateEntryIndexes.length === 1 ? "entry was" : "entries were"} found in this file.`);
+    warnings.push(
+      `${duplicateEntryIndexes.length} duplicate class ${duplicateEntryIndexes.length === 1 ? "entry was" : "entries were"} found in this file.`,
+    );
   }
   if (entries.some((entry) => !entry.room)) {
-    warnings.push("Some classes do not have a room. You can add one after importing.");
+    warnings.push(
+      "Some classes do not have a room. You can add one after importing.",
+    );
   }
   if (entries.length === 0 && errors.length === 0) {
     warnings.push("This timetable contains no class periods.");
@@ -460,11 +581,22 @@ export function parseTimetableImport(jsonText: string): ImportPreview {
   };
 }
 
-export function createSemester(name = "Current semester", startDate?: string, endDate?: string): Semester {
-  return { id: createId(), name: name.trim() || "Current semester", startDate, endDate };
+export function createSemester(
+  name = "Current semester",
+  startDate?: string,
+  endDate?: string,
+): Semester {
+  return {
+    id: createId(),
+    name: name.trim() || "Current semester",
+    startDate,
+    endDate,
+  };
 }
 
-export function sortWeeklyTimetable(entries: TimetableEntry[]): Record<Weekday, TimetableEntry[]> {
+export function sortWeeklyTimetable(
+  entries: TimetableEntry[],
+): Record<Weekday, TimetableEntry[]> {
   const grouped: Record<Weekday, TimetableEntry[]> = {
     Monday: [],
     Tuesday: [],
@@ -479,10 +611,18 @@ export function sortWeeklyTimetable(entries: TimetableEntry[]): Record<Weekday, 
   return grouped;
 }
 
-export function getClassesForDate(entries: TimetableEntry[], subjects: SubjectRecord[], date: string): ClassOccurrence[] {
+export function getClassesForDate(
+  entries: TimetableEntry[],
+  subjects: SubjectRecord[],
+  date: string,
+): ClassOccurrence[] {
   const day = weekdayForDate(date);
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
-  return sortEntries(entries.filter((entry) => entry.day === day && subjectMap.has(entry.subjectId))).flatMap((entry) => {
+  return sortEntries(
+    entries.filter(
+      (entry) => entry.day === day && subjectMap.has(entry.subjectId),
+    ),
+  ).flatMap((entry) => {
     const subject = subjectMap.get(entry.subjectId);
     return subject ? [{ date, day, entry, subject }] : [];
   });
@@ -491,8 +631,17 @@ export function getClassesForDate(entries: TimetableEntry[], subjects: SubjectRe
 export function parseLocalDate(dateString: string): Date {
   const match = dateString.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return new Date(Number.NaN);
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
-  if (date.getFullYear() !== Number(match[1]) || date.getMonth() !== Number(match[2]) - 1 || date.getDate() !== Number(match[3])) {
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    12,
+  );
+  if (
+    date.getFullYear() !== Number(match[1]) ||
+    date.getMonth() !== Number(match[2]) - 1 ||
+    date.getDate() !== Number(match[3])
+  ) {
     return new Date(Number.NaN);
   }
   return date;
@@ -517,12 +666,18 @@ export function enumerateOccurrences(
 ): ClassOccurrence[] {
   const start = parseLocalDate(startDate);
   const end = parseLocalDate(endDate);
-  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start > end) return [];
+  if (
+    !Number.isFinite(start.getTime()) ||
+    !Number.isFinite(end.getTime()) ||
+    start > end
+  )
+    return [];
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject]));
   const dayEntryMap = new Map<Weekday, TimetableEntry[]>();
   for (const day of WEEKDAYS) dayEntryMap.set(day, []);
   for (const entry of entries) dayEntryMap.get(entry.day)?.push(entry);
-  for (const day of WEEKDAYS) dayEntryMap.set(day, sortEntries(dayEntryMap.get(day) ?? []));
+  for (const day of WEEKDAYS)
+    dayEntryMap.set(day, sortEntries(dayEntryMap.get(day) ?? []));
 
   const result: ClassOccurrence[] = [];
   const cursor = new Date(start);
@@ -550,26 +705,45 @@ function copyState(state: AppState): AppState {
   };
 }
 
-export function validateAttendanceCounts(attended: number, delivered: number): string | null {
-  if (!Number.isInteger(attended) || !Number.isInteger(delivered)) return "Attendance counts must be whole numbers.";
-  if (attended < 0 || delivered < 0) return "Attendance counts cannot be negative.";
-  if (attended > delivered) return "Attended classes cannot be greater than delivered classes.";
+export function validateAttendanceCounts(
+  attended: number,
+  delivered: number,
+): string | null {
+  if (!Number.isInteger(attended) || !Number.isInteger(delivered))
+    return "Attendance counts must be whole numbers.";
+  if (attended < 0 || delivered < 0)
+    return "Attendance counts cannot be negative.";
+  if (attended > delivered)
+    return "Attended classes cannot be greater than delivered classes.";
   return null;
 }
 
-export function setSubjectAttendance(state: AppState, subjectId: string, attended: number, delivered: number): AppState {
+export function setSubjectAttendance(
+  state: AppState,
+  subjectId: string,
+  attended: number,
+  delivered: number,
+): AppState {
   const error = validateAttendanceCounts(attended, delivered);
   if (error) throw new Error(error);
   const subject = state.subjects.find((item) => item.id === subjectId);
   if (!subject) throw new Error("That subject no longer exists.");
-  const subjectEvents = state.events.filter((event) => event.subjectId === subjectId);
+  const subjectEvents = state.events.filter(
+    (event) => event.subjectId === subjectId,
+  );
   const loggedDelivered = subjectEvents.length;
-  const loggedAttended = subjectEvents.filter((event) => event.status === "present").length;
+  const loggedAttended = subjectEvents.filter(
+    (event) => event.status === "present",
+  ).length;
   if (delivered < loggedDelivered || attended < loggedAttended) {
-    throw new Error(`Keep at least ${loggedAttended} attended and ${loggedDelivered} delivered so the totals still include your ${loggedDelivered} history records.`);
+    throw new Error(
+      `Keep at least ${loggedAttended} attended and ${loggedDelivered} delivered so the totals still include your ${loggedDelivered} history records.`,
+    );
   }
   const next = copyState(state);
-  next.subjects = next.subjects.map((subject) => subject.id === subjectId ? { ...subject, attended, delivered } : subject);
+  next.subjects = next.subjects.map((subject) =>
+    subject.id === subjectId ? { ...subject, attended, delivered } : subject,
+  );
   return next;
 }
 
@@ -580,19 +754,53 @@ export function logClassAttendance(
   status: AttendanceStatus,
   source = "logger",
 ): AppState {
-  if (!Number.isFinite(parseLocalDate(date).getTime())) throw new Error("Choose a valid class date.");
+  if (!Number.isFinite(parseLocalDate(date).getTime())) {
+    throw new Error("Choose a valid class date.");
+  }
+
+  // Do not allow attendance to be logged on a holiday.
+  if (state.holidays.some((holiday) => holiday.date === date)) {
+    throw new Error(
+      "This date is marked as a holiday. Attendance cannot be logged.",
+    );
+  }
+
   const entry = state.timetable.find((item) => item.id === timetableEntryId);
-  if (!entry) throw new Error("This class is no longer on the timetable.");
-  const existing = state.events.find((event) => event.timetableEntryId === timetableEntryId && event.date === date);
-  if (existing?.status === status) return state;
-  const subject = state.subjects.find((item) => item.id === (existing?.subjectId ?? entry.subjectId));
-  if (!subject) throw new Error("The class subject could not be found.");
+
+  if (!entry) {
+    throw new Error("This class is no longer on the timetable.");
+  }
+
+  const existing = state.events.find(
+    (event) =>
+      event.timetableEntryId === timetableEntryId && event.date === date,
+  );
+
+  if (existing?.status === status) {
+    return state;
+  }
+
+  const subject = state.subjects.find(
+    (item) => item.id === (existing?.subjectId ?? entry.subjectId),
+  );
+
+  if (!subject) {
+    throw new Error("The class subject could not be found.");
+  }
 
   const next = copyState(state);
+
   const nextSubject = next.subjects.find((item) => item.id === subject.id)!;
+
+  // No existing attendance record:
+  // create a new attendance event.
   if (!existing) {
     nextSubject.delivered += 1;
-    if (status === "present") nextSubject.attended += 1;
+
+    if (status === "present") {
+      nextSubject.attended += 1;
+    }
+
     next.events.push({
       id: createId(),
       date,
@@ -607,25 +815,45 @@ export function logClassAttendance(
       endTime: entry.endTime,
       room: entry.room,
     });
+
     return next;
   }
 
-  if (existing.status === "present" && status === "absent") nextSubject.attended -= 1;
-  if (existing.status === "absent" && status === "present") nextSubject.attended += 1;
+  // Existing record:
+  // change Present ↔ Absent without increasing Delivered.
+  if (existing.status === "present" && status === "absent") {
+    nextSubject.attended -= 1;
+  }
+
+  if (existing.status === "absent" && status === "present") {
+    nextSubject.attended += 1;
+  }
+
   next.events = next.events.map((event) =>
-    event.id === existing.id ? { ...event, status, timestamp: new Date().toISOString() } : event,
+    event.id === existing.id
+      ? {
+          ...event,
+          status,
+          timestamp: new Date().toISOString(),
+        }
+      : event,
   );
+
   return next;
 }
 
-export function reverseAttendanceEvent(state: AppState, eventId: string): AppState {
+export function reverseAttendanceEvent(
+  state: AppState,
+  eventId: string,
+): AppState {
   const event = state.events.find((item) => item.id === eventId);
   if (!event) return state;
   const next = copyState(state);
   const subject = next.subjects.find((item) => item.id === event.subjectId);
   if (subject) {
     subject.delivered = Math.max(0, subject.delivered - 1);
-    if (event.status === "present") subject.attended = Math.max(0, subject.attended - 1);
+    if (event.status === "present")
+      subject.attended = Math.max(0, subject.attended - 1);
   }
   next.events = next.events.filter((item) => item.id !== eventId);
   return next;
@@ -641,22 +869,32 @@ export function correctAttendanceEvent(
   const next = copyState(state);
   const subject = next.subjects.find((item) => item.id === existing.subjectId);
   if (subject) {
-    if (existing.status === "present" && status === "absent") subject.attended = Math.max(0, subject.attended - 1);
-    if (existing.status === "absent" && status === "present") subject.attended += 1;
+    if (existing.status === "present" && status === "absent")
+      subject.attended = Math.max(0, subject.attended - 1);
+    if (existing.status === "absent" && status === "present")
+      subject.attended += 1;
   }
   next.events = next.events.map((event) =>
-    event.id === eventId ? { ...event, status, timestamp: new Date().toISOString() } : event,
+    event.id === eventId
+      ? { ...event, status, timestamp: new Date().toISOString() }
+      : event,
   );
   return next;
 }
 
 export function validateThreshold(value: number): string | null {
-  if (!Number.isFinite(value) || value < 1 || value > 100) return "Choose a threshold from 1% to 100%.";
+  if (!Number.isFinite(value) || value < 1 || value > 100)
+    return "Choose a threshold from 1% to 100%.";
   return null;
 }
 
-export function replaceTimetable(state: AppState, imported: ImportPreview, semesterName?: string): AppState {
-  if (!imported.valid) throw new Error("Fix the timetable errors before importing.");
+export function replaceTimetable(
+  state: AppState,
+  imported: ImportPreview,
+  semesterName?: string,
+): AppState {
+  if (!imported.valid)
+    throw new Error("Fix the timetable errors before importing.");
   const next = createEmptyState();
   next.threshold = state.threshold;
   next.warningMargin = state.warningMargin;
@@ -668,13 +906,18 @@ export function replaceTimetable(state: AppState, imported: ImportPreview, semes
   return next;
 }
 
-export function mergeTimetable(state: AppState, imported: ImportPreview): AppState {
-  if (!imported.valid) throw new Error("Fix the timetable errors before importing.");
+export function mergeTimetable(
+  state: AppState,
+  imported: ImportPreview,
+): AppState {
+  if (!imported.valid)
+    throw new Error("Fix the timetable errors before importing.");
   const next = copyState(state);
   const subjectMap = new Map<string, SubjectRecord>();
   const existingSubjectKey = (subject: Pick<SubjectRecord, "name" | "type">) =>
     `${subject.name.trim().toLocaleLowerCase()}|${subject.type.toLocaleLowerCase()}`;
-  for (const subject of next.subjects) subjectMap.set(existingSubjectKey(subject), subject);
+  for (const subject of next.subjects)
+    subjectMap.set(existingSubjectKey(subject), subject);
   const importedIdMap = new Map<string, string>();
   for (const incoming of imported.subjects) {
     const key = existingSubjectKey(incoming);
@@ -710,20 +953,48 @@ export function buildTripProjection(
   const start = parseLocalDate(startDate);
   const end = parseLocalDate(endDate);
   const currentDay = parseLocalDate(today);
-  if (![start, end, currentDay].every((date) => Number.isFinite(date.getTime())) || start > end) return null;
+  if (
+    ![start, end, currentDay].every((date) =>
+      Number.isFinite(date.getTime()),
+    ) ||
+    start > end
+  )
+    return null;
 
-  const allFuture = enumerateOccurrences(state.timetable, state.subjects, today, endDate);
-  const unloggedFuture = allFuture.filter((occurrence) =>
-    !state.events.some((event) =>
-      event.date === occurrence.date && event.timetableEntryId === occurrence.entry.id,
-    ),
+  const allFuture = enumerateOccurrences(
+    state.timetable,
+    state.subjects,
+    today,
+    endDate,
   );
-  const beforeTrip = unloggedFuture.filter((occurrence) => occurrence.date < startDate);
-  const duringTrip = unloggedFuture.filter((occurrence) => occurrence.date >= startDate && occurrence.date <= endDate);
+
+  const holidayDates = new Set(state.holidays.map((holiday) => holiday.date));
+
+  const unloggedFuture = allFuture.filter(
+    (occurrence) =>
+      !holidayDates.has(occurrence.date) &&
+      !state.events.some(
+        (event) =>
+          event.date === occurrence.date &&
+          event.timetableEntryId === occurrence.entry.id,
+      ),
+  );
+
+  const beforeTrip = unloggedFuture.filter(
+    (occurrence) => occurrence.date < startDate,
+  );
+
+  const duringTrip = unloggedFuture.filter(
+    (occurrence) => occurrence.date >= startDate && occurrence.date <= endDate,
+  );
   const timeline = [...beforeTrip, ...duringTrip];
   const projections: TripSubjectProjection[] = state.subjects.map((subject) => {
-    const beforeTripClasses = beforeTrip.filter((occurrence) => occurrence.subject.id === subject.id).length;
-    const tripMisses = duringTrip.filter((occurrence) => occurrence.subject.id === subject.id).length;
+    const beforeTripClasses = beforeTrip.filter(
+      (occurrence) => occurrence.subject.id === subject.id,
+    ).length;
+    const tripMisses = duringTrip.filter(
+      (occurrence) => occurrence.subject.id === subject.id,
+    ).length;
     const beforeAttended = subject.attended + beforeTripClasses;
     const beforeDelivered = subject.delivered + beforeTripClasses;
     const afterAttended = beforeAttended;
@@ -734,73 +1005,246 @@ export function buildTripProjection(
       subject,
       beforeTripClasses,
       tripMisses,
-      before: { attended: beforeAttended, delivered: beforeDelivered, percentage: attendancePercentage(beforeAttended, beforeDelivered) },
-      after: { attended: afterAttended, delivered: afterDelivered, percentage: attendancePercentage(afterAttended, afterDelivered) },
-      attendAll: { attended: allAttended, delivered: allDelivered, percentage: attendancePercentage(allAttended, allDelivered) },
-      recoveryRequired: countRecoveryClasses(afterAttended, afterDelivered, state.threshold),
-      status: attendanceStatus(afterAttended, afterDelivered, state.threshold, state.warningMargin),
+      before: {
+        attended: beforeAttended,
+        delivered: beforeDelivered,
+        percentage: attendancePercentage(beforeAttended, beforeDelivered),
+      },
+      after: {
+        attended: afterAttended,
+        delivered: afterDelivered,
+        percentage: attendancePercentage(afterAttended, afterDelivered),
+      },
+      attendAll: {
+        attended: allAttended,
+        delivered: allDelivered,
+        percentage: attendancePercentage(allAttended, allDelivered),
+      },
+      recoveryRequired: countRecoveryClasses(
+        afterAttended,
+        afterDelivered,
+        state.threshold,
+      ),
+      status: attendanceStatus(
+        afterAttended,
+        afterDelivered,
+        state.threshold,
+        state.warningMargin,
+      ),
     };
   });
   const projected = (field: "before" | "after" | "attendAll") =>
     aggregateAttendance(projections.map((projection) => projection[field]));
   const overallAfter = projected("after");
+
   return {
     startDate,
     endDate,
     timeline,
     beforeTrip,
     duringTrip,
+    holidays: state.holidays
+      .filter((holiday) => holiday.date >= today && holiday.date <= endDate)
+      .filter(
+        (holiday, index, all) =>
+          all.findIndex((h) => h.date === holiday.date) === index,
+      )
+      .sort((a, b) => a.date.localeCompare(b.date)),
     subjects: projections,
     overallBefore: projected("before"),
     overallAfter,
     overallAttendAll: projected("attendAll"),
     warningSubjects: projections
-      .filter((projection) => projection.tripMisses > 0 && projection.status === "critical")
+      .filter(
+        (projection) =>
+          projection.tripMisses > 0 && projection.status === "critical",
+      )
       .map((projection) => projection.subject.name),
   };
 }
 
+
 export function isValidAppState(value: unknown): value is AppState {
   if (!value || typeof value !== "object") return false;
+
   const candidate = value as Partial<AppState>;
-  if (candidate.schemaVersion !== 1 || !Array.isArray(candidate.subjects) || !Array.isArray(candidate.timetable) || !Array.isArray(candidate.events)) return false;
-  if (!Number.isFinite(candidate.threshold) || candidate.threshold! < 1 || candidate.threshold! > 100) return false;
-  if (!Number.isFinite(candidate.warningMargin) || candidate.warningMargin! < 0 || candidate.warningMargin! > 30) return false;
+
+  if (
+    candidate.schemaVersion !== 1 ||
+    !Array.isArray(candidate.subjects) ||
+    !Array.isArray(candidate.timetable) ||
+    !Array.isArray(candidate.events)
+  ) {
+    return false;
+  }
+
+  if (
+    !Number.isFinite(candidate.threshold) ||
+    candidate.threshold! < 1 ||
+    candidate.threshold! > 100
+  ) {
+    return false;
+  }
+
+  if (
+    !Number.isFinite(candidate.warningMargin) ||
+    candidate.warningMargin! < 0 ||
+    candidate.warningMargin! > 30
+  ) {
+    return false;
+  }
+
   const subjectIds = new Set<string>();
+
   for (const subject of candidate.subjects) {
-    if (!subject || typeof subject.id !== "string" || !subject.id || subjectIds.has(subject.id)) return false;
-    if (typeof subject.name !== "string" || !subject.name.trim()) return false;
-    if (!["Theory", "Practical", "Other"].includes(subject.type)) return false;
-    if (validateAttendanceCounts(subject.attended, subject.delivered)) return false;
+    if (
+      !subject ||
+      typeof subject.id !== "string" ||
+      !subject.id ||
+      subjectIds.has(subject.id)
+    ) {
+      return false;
+    }
+
+    if (typeof subject.name !== "string" || !subject.name.trim()) {
+      return false;
+    }
+
+    if (!["Theory", "Practical", "Other"].includes(subject.type)) {
+      return false;
+    }
+
+    if (validateAttendanceCounts(subject.attended, subject.delivered)) {
+      return false;
+    }
+
     subjectIds.add(subject.id);
   }
+
   const entryIds = new Set<string>();
+
   for (const entry of candidate.timetable) {
-    if (!entry || typeof entry.id !== "string" || !entry.id || entryIds.has(entry.id)) return false;
-    if (!subjectIds.has(entry.subjectId) || !isWeekday(entry.day)) return false;
-    if (parseTimeToMinutes(entry.startTime) === null || parseTimeToMinutes(entry.endTime) === null) return false;
-    if (parseTimeToMinutes(entry.startTime)! >= parseTimeToMinutes(entry.endTime)!) return false;
-    if (typeof entry.room !== "string") return false;
+    if (
+      !entry ||
+      typeof entry.id !== "string" ||
+      !entry.id ||
+      entryIds.has(entry.id)
+    ) {
+      return false;
+    }
+
+    if (!subjectIds.has(entry.subjectId) || !isWeekday(entry.day)) {
+      return false;
+    }
+
+    if (
+      parseTimeToMinutes(entry.startTime) === null ||
+      parseTimeToMinutes(entry.endTime) === null
+    ) {
+      return false;
+    }
+
+    if (
+      parseTimeToMinutes(entry.startTime)! >=
+      parseTimeToMinutes(entry.endTime)!
+    ) {
+      return false;
+    }
+
+    if (typeof entry.room !== "string") {
+      return false;
+    }
+
     entryIds.add(entry.id);
   }
+
+  const eventIds = new Set<string>();
+  const loggedClasses = new Set<string>();
+
   for (const event of candidate.events) {
-    if (!event || typeof event.id !== "string" || !event.id) return false;
-    if (!subjectIds.has(event.subjectId) && typeof event.subjectName !== "string") return false;
-    if (!entryIds.has(event.timetableEntryId) && typeof event.subjectName !== "string") return false;
-    if (!["present", "absent"].includes(event.status)) return false;
-    if (!Number.isFinite(parseLocalDate(event.date).getTime())) return false;
+    if (!event || typeof event.id !== "string" || !event.id) {
+      return false;
+    }
+
+    if (eventIds.has(event.id)) {
+      return false;
+    }
+
+    eventIds.add(event.id);
+
+    const classKey = `${event.timetableEntryId}|${event.date}`;
+
+    if (loggedClasses.has(classKey)) {
+      return false;
+    }
+
+    loggedClasses.add(classKey);
+
+    // Preserve historical events if their subject or timetable entry
+    // was removed, provided the event retains its subject name.
+    if (
+      !subjectIds.has(event.subjectId) &&
+      typeof event.subjectName !== "string"
+    ) {
+      return false;
+    }
+
+    if (
+      !entryIds.has(event.timetableEntryId) &&
+      typeof event.subjectName !== "string"
+    ) {
+      return false;
+    }
+
+    if (!["present", "absent"].includes(event.status)) {
+      return false;
+    }
+
+    if (!Number.isFinite(parseLocalDate(event.date).getTime())) {
+      return false;
+    }
   }
+
+  if (!Array.isArray(candidate.holidays)) {
+    return false;
+  }
+
+  for (const holiday of candidate.holidays) {
+    if (
+      !holiday ||
+      typeof holiday.date !== "string" ||
+      !Number.isFinite(parseLocalDate(holiday.date).getTime()) ||
+      typeof holiday.name !== "string" ||
+      !holiday.name.trim()
+    ) {
+      return false;
+    }
+  }
+
   if (candidate.semester !== null && candidate.semester !== undefined) {
-    if (typeof candidate.semester.id !== "string" || typeof candidate.semester.name !== "string") return false;
+    if (
+      typeof candidate.semester.id !== "string" ||
+      typeof candidate.semester.name !== "string"
+    ) {
+      return false;
+    }
   }
+
   return true;
 }
 
 function withDefaultsForOlderState(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const state = value as Partial<AppState>;
-  if (!Array.isArray(state.subjects) || !Array.isArray(state.timetable) || !Array.isArray(state.events)) return value;
-  const subjects = new Map(state.subjects.map((subject) => [subject.id, subject]));
+  if (
+    !Array.isArray(state.subjects) ||
+    !Array.isArray(state.timetable) ||
+    !Array.isArray(state.events)
+  )
+    return value;
+  const subjects = new Map(
+    state.subjects.map((subject) => [subject.id, subject]),
+  );
   const entries = new Map(state.timetable.map((entry) => [entry.id, entry]));
   const events = state.events.map((event) => {
     const subject = subjects.get(event.subjectId);
@@ -814,26 +1258,54 @@ function withDefaultsForOlderState(value: unknown): unknown {
       room: event.room ?? entry?.room,
     };
   });
-  return { ...state, warningMargin: state.warningMargin ?? 5, events };
+  return {
+    ...state,
+    savedTrips: state.savedTrips ?? [],
+    warningMargin: state.warningMargin ?? 5,
+    holidays: Array.isArray(state.holidays)
+      ? state.holidays
+          .map((holiday) =>
+            typeof holiday === "string"
+              ? { date: holiday, name: "Holiday" }
+              : holiday,
+          )
+          .filter(
+            (holiday) =>
+              holiday &&
+              typeof holiday.date === "string" &&
+              typeof holiday.name === "string",
+          )
+      : [],
+    events,
+  };
 }
 
 export function loadAppState(): { state: AppState; issue: string | null } {
-  if (typeof localStorage === "undefined") return { state: createEmptyState(), issue: null };
+  if (typeof localStorage === "undefined")
+    return { state: createEmptyState(), issue: null };
   const stored = localStorage.getItem(STORAGE_KEY);
   if (!stored) return { state: createEmptyState(), issue: null };
   try {
     const parsed = withDefaultsForOlderState(JSON.parse(stored));
     if (!isValidAppState(parsed)) {
-      return { state: createEmptyState(), issue: "Saved Attendly data could not be read. Import a backup to restore it." };
+      return {
+        state: createEmptyState(),
+        issue:
+          "Saved Attendly data could not be read. Import a backup to restore it.",
+      };
     }
     return { state: parsed, issue: null };
   } catch {
-    return { state: createEmptyState(), issue: "Saved Attendly data is damaged. Import a backup to restore it." };
+    return {
+      state: createEmptyState(),
+      issue: "Saved Attendly data is damaged. Import a backup to restore it.",
+    };
   }
 }
 
 export function saveAppState(state: AppState): void {
-  if (typeof localStorage === "undefined") throw new Error("Browser storage is unavailable.");
+  if (typeof localStorage === "undefined")
+    throw new Error("Browser storage is unavailable.");
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -844,10 +1316,22 @@ export function parseBackup(jsonText: string): AppState {
   } catch {
     throw new Error("This backup is not valid JSON.");
   }
-  const candidate = parsed && typeof parsed === "object" && "attendly" in parsed
-    ? (parsed as { attendly: unknown }).attendly
-    : parsed;
+  const candidate =
+    parsed && typeof parsed === "object" && "attendly" in parsed
+      ? (parsed as { attendly: unknown }).attendly
+      : parsed;
   const normalized = withDefaultsForOlderState(candidate);
-  if (!isValidAppState(normalized)) throw new Error("This file is not a valid Attendly backup.");
+  if (!isValidAppState(normalized))
+    throw new Error("This file is not a valid Attendly backup.");
   return normalized;
+}
+export function isHoliday(
+  date: string,
+  holidays: AppState["holidays"],
+): boolean {
+  return holidays.some((holiday) => holiday.date === date);
+}
+
+export function getHoliday(date: string, holidays: AppState["holidays"]) {
+  return holidays.find((holiday) => holiday.date === date) ?? null;
 }
