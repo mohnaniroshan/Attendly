@@ -676,37 +676,34 @@ function App() {
                     </button>
                   </div>
                 )}
-                <Switch>
-                  <Route path="/" component={() => <Dashboard {...props} />} />
-                  <Route
-                    path="/subjects"
-                    component={() => <Subjects {...props} />}
-                  />
-                  <Route
-                    path="/timetable"
-                    component={() => <Timetable {...props} />}
-                  />
-                  <Route
-                    path="/logger"
-                    component={() => <Logger {...props} />}
-                  />
-                  <Route
-                    path="/history"
-                    component={() => <HistoryPage {...props} />}
-                  />
-                  <Route
-                    path="/holidays"
-                    component={() => <Holidays {...props} />}
-                  />
-                  <Route
-                    path="/planner"
-                    component={() => <Planner {...props} />}
-                  />
-                  <Route
-                    path="/settings"
-                    component={() => <Settings {...props} />}
-                  />
-                  <Route component={NotFound} />
+                                <Switch>
+                  <Route path="/">
+                    <Dashboard {...props} />
+                  </Route>
+                  <Route path="/subjects">
+                    <Subjects {...props} />
+                  </Route>
+                  <Route path="/timetable">
+                    <Timetable {...props} />
+                  </Route>
+                  <Route path="/logger">
+                    <Logger {...props} />
+                  </Route>
+                  <Route path="/history">
+                    <HistoryPage {...props} />
+                  </Route>
+                  <Route path="/holidays">
+                    <Holidays {...props} />
+                  </Route>
+                  <Route path="/planner">
+                    <Planner {...props} />
+                  </Route>
+                  <Route path="/settings">
+                    <Settings {...props} />
+                  </Route>
+                  <Route>
+                    <NotFound />
+                  </Route>
                 </Switch>
               </RoutedErrorBoundary>
             </main>
@@ -917,12 +914,15 @@ function summary(subjects: SubjectRecord[]) {
 
 function Dashboard(p: Shared) {
   const { state } = p;
-  const today = todayIso(),
-    todaysEntries = getClassesForDate(
-      state.timetable,
-      state.subjects,
-      today,
-    ).map((o) => o.entry);
+  const today = todayIso();
+  const holiday = state.holidays.find((h) => h.date === today);
+  const todaysEntries = holiday
+    ? []
+    : getClassesForDate(
+        state.timetable,
+        state.subjects,
+        today,
+      ).map((o) => o.entry);
   const logged = new Set(
     state.events.filter((e) => e.date === today).map((e) => e.timetableEntryId),
   );
@@ -1020,7 +1020,9 @@ function Dashboard(p: Shared) {
             {todaysEntries.length}
           </div>
           <div className="text-xs mt-2 text-muted-foreground">
-            {logged.size} of {todaysEntries.length} recorded
+            {holiday
+              ? "Holiday"
+              : `${logged.size} of ${todaysEntries.length} recorded`}
           </div>
         </div>
         <div className="stat-card">
@@ -1106,8 +1108,12 @@ function Dashboard(p: Shared) {
           ) : (
             <Empty
               icon={Clock3}
-              title="Nothing scheduled today"
-              text="Add your weekly classes to see the rhythm of your day here."
+              title={holiday ? holiday.name : "Nothing scheduled today"}
+              text={
+                holiday
+                  ? "Today is marked as a holiday. No classes are shown on the overview."
+                  : "Add your weekly classes to see the rhythm of your day here."
+              }
               action={
                 <Link
                   href="/timetable"
@@ -1974,6 +1980,29 @@ function Logger(p: Shared) {
   ).map((o) => o.entry);
 
   const todayEvents = p.state.events.filter((event) => event.date === today);
+  const [pendingBulkStatus, setPendingBulkStatus] =
+    useState<"present" | "absent" | null>(null);
+  const allArePresent =
+    entries.length > 0 &&
+    entries.every((entry) =>
+      todayEvents.some(
+        (event) =>
+          event.timetableEntryId === entry.id && event.status === "present",
+      ),
+    );
+
+  const markAll = (status: "present" | "absent") => {
+    if (!isHoliday && entries.length > 0) setPendingBulkStatus(status);
+  };
+
+  const confirmMarkAll = () => {
+    if (!pendingBulkStatus) return;
+    const status = pendingBulkStatus;
+    const label = status === "present" ? "present" : "absent";
+    entries.forEach((entry) => p.record(entry, today, status));
+    p.notify(`Marked all ${entries.length} classes ${label}`);
+    setPendingBulkStatus(null);
+  };
 
   const markHoliday = () => {
     if (todayEvents.length > 0) {
@@ -2060,6 +2089,55 @@ function Logger(p: Shared) {
             <CalendarDays size={16} />
             Mark today as holiday
           </button>
+        </div>
+      )}
+
+      {!isHoliday && entries.length > 0 && (
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            className={allArePresent ? "btn-danger" : "btn-secondary"}
+            onClick={() => markAll(allArePresent ? "absent" : "present")}
+            data-testid="button-mark-all-attendance"
+          >
+            {allArePresent ? <X size={16} /> : <Check size={16} />}
+            {allArePresent ? "Mark all absent" : "Mark all present"}
+          </button>
+        </div>
+      )}
+
+      {pendingBulkStatus && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-[#15251f]/55 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPendingBulkStatus(null);
+          }}
+        >
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="bulk-attendance-title"
+            aria-describedby="bulk-attendance-description"
+            className="w-full max-w-md rounded-2xl border border-[#dfe5d9] bg-[#fbfaf6] p-6 shadow-2xl"
+          >
+            <div className="mb-3 grid h-11 w-11 place-items-center rounded-xl bg-[#e8f0e5] text-[#416b50]">
+              {pendingBulkStatus === "present" ? <Check size={22} /> : <X size={22} />}
+            </div>
+            <h2 id="bulk-attendance-title" className="text-xl font-semibold text-[#254236]">
+              {pendingBulkStatus === "present" ? "Mark all present?" : "Mark all absent?"}
+            </h2>
+            <p id="bulk-attendance-description" className="mt-2 text-sm leading-6 text-[#68786e]">
+              This will mark all {entries.length} scheduled classes as {pendingBulkStatus}. Existing records for today will be updated.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" className="btn-secondary" onClick={() => setPendingBulkStatus(null)}>
+                Cancel
+              </button>
+              <button type="button" className={pendingBulkStatus === "present" ? "btn-primary" : "btn-danger"} onClick={confirmMarkAll}>
+                Confirm
+              </button>
+            </div>
+          </section>
         </div>
       )}
 
@@ -2901,20 +2979,40 @@ function Planner(p: Shared) {
                   </div>
                 );
               })}
-              <div
-                className="mt-4 rounded-xl bg-[#f2f4ed] p-3"
+              <section
+                className="mt-5 rounded-2xl border border-[#e1e7dc] bg-[#f5f6f0] p-4 sm:p-5"
                 data-testid="list-trip-occurrences"
+                aria-labelledby="trip-occurrences-heading"
               >
-                <div className="text-xs font-semibold text-[#3c5747] mb-2">
-                  Classes and holidays in the selected dates
+                <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                  <div>
+                    <h3
+                      id="trip-occurrences-heading"
+                      className="text-sm font-semibold text-[#304b3d]"
+                    >
+                      What falls during your trip?
+                    </h3>
+                    <p className="text-xs text-[#718378] mt-1">
+                      Classes you may miss and holidays during your selected dates.
+                    </p>
+                  </div>
+                  {projection && (
+                    <div className="flex flex-wrap gap-2 text-[11px] font-medium">
+                      <span className="rounded-full bg-white px-3 py-1.5 text-[#356747] border border-[#e1e9df]">
+                        {projection.duringTrip.length} {projection.duringTrip.length === 1 ? "class" : "classes"}
+                      </span>
+                      <span className="rounded-full bg-amber-50 px-3 py-1.5 text-amber-800 border border-amber-100">
+                        {projection.holidays.filter((holiday) => holiday.date >= start && holiday.date <= end).length} holidays
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {(() => {
                   if (!projection) {
                     return (
-                      <p className="text-xs text-muted-foreground">
-                        Choose a valid trip date range to see classes and
-                        holidays.
+                      <p className="rounded-xl bg-white px-4 py-5 text-sm text-[#718378]">
+                        Choose a valid trip date range to see which classes and holidays fall within it.
                       </p>
                     );
                   }
@@ -2925,37 +3023,88 @@ function Planner(p: Shared) {
                       kind: "class" as const,
                       occurrence,
                     })),
-
                     ...projection.holidays
-                      .filter(
-                        (holiday) =>
-                          holiday.date >= start && holiday.date <= end,
-                      )
+                      .filter((holiday) => holiday.date >= start && holiday.date <= end)
                       .map((holiday) => ({
                         date: holiday.date,
                         kind: "holiday" as const,
                         holiday,
                       })),
                   ].sort((a, b) => a.date.localeCompare(b.date));
+                  const tripDates = [...new Set(tripItems.map((item) => item.date))];
 
                   return tripItems.length > 0 ? (
-                    <div className="max-h-48 overflow-auto space-y-2">
-                      {tripItems.map((item, index) => (
-                        <div
-                          key={`${item.kind}-${item.date}-${index}`}
-                          className="flex justify-between gap-3 text-xs"
-                        >
-                          {/* Keep the existing contents of this item's div here. */}
-                        </div>
-                      ))}
+                    <div className="max-h-80 overflow-y-auto pr-1 space-y-3">
+                      {tripDates.map((date) => {
+                        const itemsForDate = tripItems.filter((item) => item.date === date);
+                        const classesForDate = itemsForDate.filter((item) => item.kind === "class").length;
+                        return (
+                          <div key={date} className="overflow-hidden rounded-xl border border-[#e4e9e0] bg-white">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#edf0e9] bg-white px-4 py-3">
+                              <div className="font-semibold text-sm text-[#304b3d]">
+                                {new Date(`${date}T12:00:00`).toLocaleDateString("en-IN", {
+                                  weekday: "long",
+                                  day: "numeric",
+                                  month: "short",
+                                })}
+                              </div>
+                              <span className="text-[11px] text-[#718378]">
+                                {classesForDate > 0
+                                  ? `${classesForDate} ${classesForDate === 1 ? "class" : "classes"}`
+                                  : "No scheduled classes"}
+                              </span>
+                            </div>
+                            <div className="divide-y divide-[#edf0e9]">
+                              {itemsForDate.map((item, index) => (
+                                <div
+                                  key={`${item.kind}-${item.date}-${index}`}
+                                  className="flex items-start justify-between gap-3 px-4 py-3"
+                                >
+                                  <div className="min-w-0">
+                                    {item.kind === "class" ? (
+                                      <>
+                                        <div className="text-sm font-medium text-[#304b3d]">
+                                          {item.occurrence.subject.name}
+                                        </div>
+                                        <div className="mt-1 text-xs text-[#718378]">
+                                          {item.occurrence.entry.startTime}–{item.occurrence.entry.endTime}
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="text-sm font-medium text-[#8b570d]">
+                                        {item.holiday.name}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <span
+                                    className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                                      item.kind === "holiday"
+                                        ? "bg-amber-100 text-amber-800"
+                                        : "bg-[#e6f0e6] text-[#356747]"
+                                    }`}
+                                  >
+                                    {item.kind === "holiday" ? "Holiday" : "Class"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">
-                      No classes or holidays fall within these dates.
-                    </p>
+                    <div className="rounded-xl border border-dashed border-[#d9e2d6] bg-white px-4 py-6 text-center">
+                      <CalendarDays size={20} className="mx-auto mb-2 text-[#7b9581]" />
+                      <p className="text-sm font-medium text-[#3c5747]">
+                        No classes or holidays in these dates
+                      </p>
+                      <p className="text-xs text-[#718378] mt-1">
+                        Your selected trip range has no scheduled classes or saved holidays.
+                      </p>
+                    </div>
                   );
                 })()}
-              </div>
+              </section>
               <div className="text-[11px] mt-4 text-muted-foreground flex gap-2">
                 <AlertCircle size={14} className="shrink-0" />
                 Recovery estimates assume you attend every future class for that
